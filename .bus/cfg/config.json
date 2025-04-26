@@ -1,0 +1,24 @@
+{
+    "loggerConfig": {
+        "name": "MyLogger",
+        "level": 1,
+        "outputFilePath": ".bus/log/bus.log",
+        "withTrace": false,
+        "withCaller": true,
+        "rotateMaxMB": 10,
+        "rotateMaxAge": 7,
+        "rotateBackups": 5,
+        "rotateCompress": true
+    },
+    "busConfig": {
+        "version": "1.0.0",
+        "name": "Bus",
+        "repository": "https://github.com/myrepo"
+    },
+    "authConfig": {
+        "authEnabled": true,
+        "defaultAdminLogin": "admin",
+        "defaultAdminPassword": "password123",
+        "dbPath": "./.bus/data/bus.db"
+    }
+}
