@@ -5,6 +5,8 @@ package bus_client
 import (
 	"context"
 	"fmt"
+	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,43 +21,57 @@ var _ typ.IBusClient = (*BusClient)(nil)
 //  BusClient Struct
 //-----------------------------------------
 
-// BusClient represents a client for interacting with the message bus.
+// BusClient представляет клиента для взаимодействия с шиной сообщений.
 type BusClient struct {
-	ID                uint64            // Client identifier
-	Bus               typ.IBus          // Bus the client interacts with
-	Subscriptions     *sync.Map         // Thread-safe subscriptions map (sync.Map)
-	Client            typ.IBusClient    // Implementation of the bus client for subscription/publishing
-	messageChannel    chan typ.IRequest // Channel for asynchronously processing messages
-	secretKey         string            // Secret key for authentication
-	batchBuffer       []typ.IRequest    // Buffer for batch message processing
-	batchTicker       *time.Ticker      // Timer for batch processing interval
-	mu                sync.Mutex        // Mutex for synchronizing access to the client
+	ID                uint64            // Идентификатор клиента
+	Bus               typ.IBus          // Шина, с которой взаимодействует клиент
+	Subscriptions     *sync.Map         // Потокобезопасная карта подписок (sync.Map)
+	Client            typ.IBusClient    // Реализация клиента шины для подписок/публикации
+	messageChannel    chan typ.IRequest // Канал для асинхронной обработки сообщений
+	secretKey         string            // Секретный ключ для аутентификации
+	batchBuffer       []typ.IRequest    // Буфер для обработки сообщений в пакетах
+	batchTicker       *time.Ticker      // Таймер для периодической обработки пакетов
+	mu                sync.Mutex        // Мьютекс для синхронизации доступа к клиенту
 	cond              *sync.Cond
-	msgHandlers       map[string]func(subject string, msg []byte) // Handlers for each subject
-	maxConcurrentMsgs int                                         // Max number of concurrent message handlers
+	msgHandlers       map[string]func(subject string, msg []byte) // Обработчики для каждого типа сообщения
+	maxConcurrentMsgs int                                         // Максимальное количество параллельных обработчиков сообщений
+	// Новое поле для хранения сетевого соединения
+	Connection net.Conn // Соединение с шиной
 }
 
 //-----------------------------------------
-//  BusClient Initialization
+//  Инициализация BusClient
 //-----------------------------------------
 
-// NewBusClient creates a new instance of a bus client.
-func NewBusClient(id uint64, bus typ.IBus, secretKey string, maxConcurrentMsgs int) typ.IBusClient {
+// NewBusClient создает новый экземпляр клиента шины.
+func NewBusClient(id uint64, bus typ.IBus, secretKey string, maxConcurrentMsgs int, host string, port int) typ.IBusClient {
+	// Форматируем адрес для соединения (IPv4 или IPv6)
+	address := formatAddress(host, port)
+
+	// Устанавливаем соединение через net.Dial
+	conn, err := net.Dial("tcp", address)
+	if err != nil {
+		x_log.Error("Error connecting to bus:", err)
+		return nil
+	}
+
+	// Инициализируем BusClient
 	client := &BusClient{
 		ID:                id,
 		Bus:               bus,
-		Subscriptions:     &sync.Map{},                  // Use sync.Map for subscriptions
-		messageChannel:    make(chan typ.IRequest, 100), // Buffered channel for message processing
+		Subscriptions:     &sync.Map{},                  // Используем sync.Map для подписок
+		messageChannel:    make(chan typ.IRequest, 100), // Буферизированный канал для обработки сообщений
 		secretKey:         secretKey,
-		batchBuffer:       make([]typ.IRequest, 0),                           // Initialize batch buffer
-		batchTicker:       time.NewTicker(5 * time.Second),                   // Timer for periodic batch processing
-		msgHandlers:       make(map[string]func(subject string, msg []byte)), // Initialize handlers map
+		batchBuffer:       make([]typ.IRequest, 0),                           // Инициализируем буфер для пакетов
+		batchTicker:       time.NewTicker(5 * time.Second),                   // Таймер для периодической обработки пакетов
+		msgHandlers:       make(map[string]func(subject string, msg []byte)), // Инициализируем карту обработчиков
 		maxConcurrentMsgs: maxConcurrentMsgs,
+		Connection:        conn, // Сохраняем соединение
 	}
 
 	client.cond = sync.NewCond(&client.mu)
 
-	// Start a goroutine to process messages
+	// Запускаем горутину для обработки сообщений
 	go client.processMessages()
 
 	x_log.Info("BusClient", id, "created and ready to process messages")
@@ -63,11 +79,23 @@ func NewBusClient(id uint64, bus typ.IBus, secretKey string, maxConcurrentMsgs i
 	return client
 }
 
+// formatAddress форматирует адрес для IPv4 или IPv6
+func formatAddress(host string, port int) string {
+	// Проверяем, является ли хост IPv6-адресом
+	if strings.Contains(host, ":") {
+		// Для IPv6 адреса необходимо обернуть его в квадратные скобки
+		return fmt.Sprintf("[%s]:%d", host, port)
+	}
+
+	// Для IPv4-адреса просто возвращаем host:port
+	return fmt.Sprintf("%s:%d", host, port)
+}
+
 //-----------------------------------------
-//  Message Processing
+//  Обработка сообщений
 //-----------------------------------------
 
-// RegisterHandler registers a handler for a given subject on the client.
+// RegisterHandler регистрирует обработчик для определенной темы на клиенте.
 func (bc *BusClient) RegisterHandler(subject string, handler func(subject string, msg []byte)) error {
 	if bc.msgHandlers == nil {
 		bc.msgHandlers = make(map[string]func(subject string, msg []byte))
@@ -78,24 +106,25 @@ func (bc *BusClient) RegisterHandler(subject string, handler func(subject string
 	return nil
 }
 
-// processMessages processes received messages asynchronously and in batches.
+// processMessages обрабатывает полученные сообщения асинхронно и пакетами.
 func (bc *BusClient) processMessages() {
 	x_log.Info("Client", bc.ID, "started processing messages")
 
-	// Create a semaphore to limit the number of concurrent goroutines
+	// Создаем семафор для ограничения количества параллельных горутин
 	sem := make(chan struct{}, bc.maxConcurrentMsgs)
 
 	for {
 		select {
 		case req := <-bc.messageChannel:
-			sem <- struct{}{} // Acquire a slot for the goroutine
+			sem <- struct{}{} // Захватываем слот для горутины
 			go func(req typ.IRequest) {
-				defer func() { <-sem }() // Release the slot when done
+				defer func() { <-sem }() // Освобождаем слот, когда горутина завершена
 				if request, ok := req.(*bus_req.Request); ok {
 					x_log.Info("Client", bc.ID, "received message for subject:", request.GetSubject())
 
 					bc.batchBuffer = append(bc.batchBuffer, request)
 
+					// Если буфер набрал 100 сообщений, обрабатываем пакет
 					if len(bc.batchBuffer) >= 100 {
 						x_log.Info("Client", bc.ID, "batch buffer full, processing batch of", len(bc.batchBuffer), "messages")
 						bc.handleBatch(bc.batchBuffer)
@@ -116,7 +145,7 @@ func (bc *BusClient) processMessages() {
 	}
 }
 
-// handleBatch processes a batch of messages.
+// handleBatch обрабатывает пакет сообщений.
 func (bc *BusClient) handleBatch(batch []typ.IRequest) {
 	x_log.Info("Client", bc.ID, "processing a batch of", len(batch), "messages")
 
@@ -139,18 +168,18 @@ func (bc *BusClient) handleBatch(batch []typ.IRequest) {
 }
 
 //-----------------------------------------
-//  Subscription Management
+//  Управление подписками
 //-----------------------------------------
 
-// subscribeTopic subscribes the client to a specified subject with a given queue.
+// subscribeTopic подписывает клиента на определенную тему с заданной очередью.
 func (bc *BusClient) subscribeTopic(subject string, queue string, handler func(subject string, msg []byte)) error {
 	x_log.Info("Client", bc.ID, "subscribing to subject", subject, "with queue", queue)
 
-	// Use sync.Map to manage subscriptions efficiently
+	// Используем sync.Map для эффективного управления подписками
 	subscriptions, _ := bc.Subscriptions.LoadOrStore(subject, []string{})
 	existingQueues := subscriptions.([]string)
 
-	// Check if the client is already subscribed to this subject and queue
+	// Проверяем, подписан ли клиент уже на эту тему и очередь
 	for _, existingQueue := range existingQueues {
 		if existingQueue == queue {
 			x_log.Info("Client", bc.ID, "is already subscribed to subject", subject, "with queue", queue)
@@ -158,17 +187,17 @@ func (bc *BusClient) subscribeTopic(subject string, queue string, handler func(s
 		}
 	}
 
-	// Add new queue to subscriptions
+	// Добавляем новую очередь в подписки для данной темы
 	bc.Subscriptions.Store(subject, append(existingQueues, queue))
 
-	// Register the handler for this subject
+	// Регистрируем обработчик для этой темы
 	err := bc.RegisterHandler(subject, handler)
 	if err != nil {
 		x_log.Error("Client", bc.ID, "Failed to register handler for subject", subject, ":", err)
 		return fmt.Errorf("failed to register handler: %w", err)
 	}
 
-	// Subscribe the client to the subject with the queue
+	// Подписываем клиента на тему с очередью
 	err = bc.Bus.Subscribe([]byte(subject), []byte(queue), bc)
 	if err != nil {
 		x_log.Error("Client", bc.ID, "Subscription failed for subject", subject, "with queue", queue, ":", err)
@@ -179,17 +208,17 @@ func (bc *BusClient) subscribeTopic(subject string, queue string, handler func(s
 	return nil
 }
 
-// Subscribe subscribes the client to a specified subject with a given queue and handler.
+// Subscribe подписывает клиента на указанную тему с очередью и обработчиком.
 func (bc *BusClient) Subscribe(subject string, queue string, handler func(subject string, msg []byte)) error {
 	return bc.subscribeTopic(subject, queue, handler)
 }
 
-// RetrySubscribe attempts to subscribe to a topic with retries.
+// RetrySubscribe пытается подписаться на тему с повторными попытками.
 func (bc *BusClient) RetrySubscribe(subject string, queue string, retries int, delay time.Duration, handler func(subject string, msg []byte)) error {
 	x_log.Info("Client", bc.ID, "Attempting to retry subscription to subject", subject, "with queue", queue)
 
 	for i := 0; i < retries; i++ {
-		// Attempt to subscribe with the handler
+		// Попытка подписки с обработчиком
 		err := bc.Subscribe(subject, queue, handler)
 		if err == nil {
 			x_log.Info("Client", bc.ID, "Successfully subscribed to subject", subject, "after", i+1, "attempts")
@@ -204,10 +233,10 @@ func (bc *BusClient) RetrySubscribe(subject string, queue string, retries int, d
 }
 
 //-----------------------------------------
-//  Message Publishing
+//  Публикация сообщений
 //-----------------------------------------
 
-// PublishMessage publishes a message to the specified subject and queue.
+// PublishMessage публикует сообщение на указанную тему и очередь.
 func (bc *BusClient) PublishMessage(subject string, data []byte, queue string) error {
 	x_log.Info("Client", bc.ID, "publishing message to subject", subject, "with queue", queue)
 
@@ -221,7 +250,7 @@ func (bc *BusClient) PublishMessage(subject string, data []byte, queue string) e
 	return nil
 }
 
-// RetryPublish attempts to publish a message multiple times with retries.
+// RetryPublish пытается несколько раз опубликовать сообщение с повторными попытками.
 func (bc *BusClient) RetryPublish(subject string, data []byte, retries int, delay time.Duration, queue string) error {
 	currentDelay := delay
 
@@ -248,10 +277,10 @@ func (bc *BusClient) RetryPublish(subject string, data []byte, retries int, dela
 }
 
 //-----------------------------------------
-//  Incoming Message Handling
+//  Обработка входящих сообщений
 //-----------------------------------------
 
-// HandleIncomingMessage asynchronously handles messages for a given subject.
+// HandleIncomingMessage асинхронно обрабатывает сообщения для указанной темы.
 func (bc *BusClient) HandleIncomingMessage(subject string, data []byte) error {
 	x_log.Info("Client", bc.ID, "Handling incoming message for subject", subject)
 
@@ -263,10 +292,10 @@ func (bc *BusClient) HandleIncomingMessage(subject string, data []byte) error {
 }
 
 //-----------------------------------------
-//  Request Sending
+//  Отправка запросов
 //-----------------------------------------
 
-// SendRequest sends a request through the bus and processes it through the middleware chain.
+// SendRequest отправляет запрос через шину и обрабатывает его через цепочку промежуточного ПО.
 func (bc *BusClient) SendRequest(ctx context.Context, req typ.IRequest) error {
 	for _, middleware := range bc.Bus.GetMiddleware() {
 		select {
@@ -285,7 +314,7 @@ func (bc *BusClient) SendRequest(ctx context.Context, req typ.IRequest) error {
 	return nil
 }
 
-// SendToMessageChannel sends data to the client's message channel.
+// SendToMessageChannel отправляет данные в канал сообщений клиента.
 func (bc *BusClient) SendToMessageChannel(subject string, data []byte) error {
 	x_log.Info("Client", bc.ID, "Sending message to message channel")
 
@@ -302,45 +331,80 @@ func (bc *BusClient) SendToMessageChannel(subject string, data []byte) error {
 	}
 }
 
-//-----------------------------------------
-//  IBusClient Interface Implementation
-//-----------------------------------------
-
-// SubscribeToTopic subscribes the client to a specified subject with a queue and registers a handler.
-func (bc *BusClient) SubscribeToTopic(subject string, queue string, handler func(subject string, msg []byte)) error {
-	return bc.Subscribe(subject, queue, handler)
-}
-
-// ProcessBatch processes a batch of messages asynchronously.
-func (bc *BusClient) ProcessBatch(batch []typ.IRequest) error {
-	x_log.Info("Client", bc.ID, "is processing a batch of", len(batch), "messages")
-
-	for _, req := range batch {
-		x_log.Info("Processing message:", string(req.GetData()))
-
-		subject := req.GetSubject()
-		data := req.GetData()
-
-		handler, exists := bc.GetHandler(subject)
-		if !exists {
-			x_log.Error("No handler found for subject", subject)
-			continue
-		}
-
-		handler(subject, data)
-	}
-
-	x_log.Info("Finished processing batch")
-	return nil
-}
-
-// GetClientID retrieves the client ID.
+// GetClientID получает идентификатор клиента.
 func (bc *BusClient) GetClientID() uint64 {
 	return bc.ID
 }
 
-// GetHandler retrieves the handler for a specific subject in the client
+// GetHandler получает обработчик для конкретной темы в клиенте.
 func (bc *BusClient) GetHandler(subject string) (func(subject string, msg []byte), bool) {
 	handler, exists := bc.msgHandlers[subject]
 	return handler, exists
+}
+
+// ProcessBatch асинхронно обрабатывает пакет сообщений, извлекая обработчики для каждой темы.
+func (bc *BusClient) ProcessBatch(batch []typ.IRequest) error {
+	x_log.Info("Client", bc.ID, "is processing a batch of", len(batch), "messages")
+
+	for _, req := range batch {
+		x_log.Info("Client", bc.ID, "processing message:", string(req.GetData()))
+
+		subject := req.GetSubject() // Извлекаем тему из сообщения
+		data := req.GetData()       // Извлекаем данные сообщения
+
+		// Получаем обработчик для текущей темы
+		handler, exists := bc.GetHandler(subject)
+		if !exists {
+			// Если обработчик не найден, выводим ошибку и продолжаем
+			x_log.Error("Client", bc.ID, "No handler found for subject", subject)
+			continue
+		}
+
+		// Вызываем обработчик для обработки данных
+		handler(subject, data)
+	}
+
+	x_log.Info("Client", bc.ID, "finished processing batch")
+	return nil
+}
+
+// SubscribeToTopic подписывает клиента на заданную тему с конкретной очередью и регистрирует обработчик.
+func (bc *BusClient) SubscribeToTopic(subject string, queue string, handler func(subject string, msg []byte)) error {
+	x_log.Info("Client", bc.ID, "subscribing to subject", subject, "with queue", queue)
+
+	// Используем sync.Map для эффективного управления подписками
+	subscriptions, _ := bc.Subscriptions.LoadOrStore(subject, []string{})
+	existingQueues := subscriptions.([]string)
+
+	// Проверяем, если клиент уже подписан на эту тему и очередь
+	for _, existingQueue := range existingQueues {
+		if existingQueue == queue {
+			// Если подписка уже существует, выходим
+			x_log.Info("Client", bc.ID, "is already subscribed to subject", subject, "with queue", queue)
+			return nil
+		}
+	}
+
+	// Добавляем новую очередь в список подписок для данной темы
+	bc.Subscriptions.Store(subject, append(existingQueues, queue))
+
+	// Регистрируем обработчик для этой темы
+	err := bc.RegisterHandler(subject, handler)
+	if err != nil {
+		// Если регистрация обработчика не удалась, выводим ошибку
+		x_log.Error("Client", bc.ID, "Failed to register handler for subject", subject, ":", err)
+		return fmt.Errorf("failed to register handler: %w", err)
+	}
+
+	// Подписываем клиента на тему с указанной очередью
+	err = bc.Bus.Subscribe([]byte(subject), []byte(queue), bc)
+	if err != nil {
+		// Если подписка на шину не удалась, выводим ошибку
+		x_log.Error("Client", bc.ID, "Subscription failed for subject", subject, "with queue", queue, ":", err)
+		return fmt.Errorf("failed to subscribe: %w", err)
+	}
+
+	// Логируем успешную подписку
+	x_log.Info("Client", bc.ID, "successfully subscribed to subject", subject, "with queue", queue)
+	return nil
 }

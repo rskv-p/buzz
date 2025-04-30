@@ -1,5 +1,3 @@
-// file: buzz/mod/m_bus/bus_module.go
-
 package m_bus
 
 import (
@@ -29,17 +27,19 @@ var ErrInvalidActionType = fmt.Errorf("invalid action type")
 
 // BusModule combines Module and Bus together
 type BusModule struct {
-	mod.Module               // <-- теперь указатель на Module
+	mod.Module               // <-- now an embedded Module
 	Bus        *bus_core.Bus // Embedded bus (message processing)
 	busClient  typ.IBusClient
 }
 
 // NewBusModule creates and returns a new BusModule with all actions registered.
-func NewBusModule(name string, secretKey string, selfClient typ.IBusClient, maxGoroutines int) *BusModule {
-	bus := bus_core.NewBus(secretKey, selfClient, maxGoroutines)
+func NewBusModule(name string, secretKey string, maxGoroutines int, host string, port int) *BusModule {
+	// Create bus with host and port for both IPv4 and IPv6
+	bus := bus_core.NewBus(secretKey, maxGoroutines, host, port)
 
-	busClient := bus_client.NewBusClient(1, bus, secretKey, 10) // ID = 1, можно подставить другое
+	busClient := bus_client.NewBusClient(1, bus, secretKey, 10, host, port) // ID = 1, can use another ID
 
+	// Build topic names for GET, POST, DELETE, PUT requests
 	topicNameGet, err := x_str.BuildTopicName(name, "demo")
 	if err != nil {
 		x_log.Error("Failed to build topic name for GET:", err)
@@ -205,18 +205,18 @@ func RegisterPublicActions(module typ.IModule) {
 			continue
 		}
 
-		// Копируем action в локальную переменную, чтобы избежать замыкания
+		// Copy action into a local variable to avoid closure issues
 		act := action
 
-		// Регистрируем один обработчик на путь
+		// Register one handler for the path
 		http.HandleFunc("/api/"+actionName, func(w http.ResponseWriter, r *http.Request) {
-			// Проверяем, что метод разрешён
+			// Ensure the method is allowed
 			if r.Method != expectedMethods {
 				http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 				return
 			}
 
-			// Логируем запрос
+			// Log the request
 			x_log.Info("Received request:", r.Method, "for action:", act.GetName())
 
 			switch r.Method {
@@ -334,9 +334,9 @@ func (bm *BusModule) RegisterActionsOnBus() {
 			continue
 		}
 
-		// Получаем базовое имя action
+		// Get the base name of the action
 		baseSubject := action.GetName()
-		// Добавляем метод для шины
+		// Add the method to the topic name
 		subjectWithMethod, err := x_str.BuildTopicName(baseSubject, action.GetMethod())
 		if err != nil {
 			x_log.Error("Failed to build full bus subject for action:", baseSubject, "Error:", err)
@@ -346,8 +346,8 @@ func (bm *BusModule) RegisterActionsOnBus() {
 		handler := func(subject string, msg []byte) {
 			x_log.Info("Executing action for subject:", subject)
 
-			// Здесь можно парсить msg как []interface{}, если надо
-			inputs := []interface{}{string(msg)} // Пока просто строка
+			// You can parse msg as []interface{} if needed
+			inputs := []interface{}{string(msg)} // Currently just a string
 
 			_ = action.SetInputs(inputs)
 

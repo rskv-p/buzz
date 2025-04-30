@@ -1,5 +1,3 @@
-// file:buzz/mod/m_bus/bus_client/client_test.go
-
 package bus_client_test
 
 import (
@@ -9,94 +7,136 @@ import (
 
 	"github.com/rskv-p/buzz/mod/m_bus/bus_client"
 	"github.com/rskv-p/buzz/mod/m_bus/bus_core"
+	"github.com/rskv-p/buzz/pkg/x_log"
 	"github.com/rskv-p/buzz/typ"
 	"github.com/stretchr/testify/assert"
 )
 
-//-----------------------------------------
-//  Test BusClient
-//-----------------------------------------
-
+// TestBusClient tests the creation of a BusClient and its message handling
 func TestBusClient(t *testing.T) {
 	// Mock handler for the test
 	var receivedMessage []byte
 
-	// Log creation of the main bus with the secret key
-	t.Log("Creating bus with secret key 'secret-key'")
+	// Test with IPv4 address
+	t.Log("Creating bus with secret key 'secret-key' (IPv4)")
 
-	// Create the main bus with a secret key
-	bus := bus_core.NewBus("secret-key", nil, 5)
+	// Create the main bus with IPv4 address
+	busIPv4 := bus_core.NewBus("secret-key", 5, "127.0.0.1", 8080) // Use local IPv4 address
+	x_log.Info("Bus created with secret key (IPv4)")
 
-	// Log the creation of the client through ClientFactory
-	t.Log("Creating bus client with ID 1")
+	// Create the client using IPv4 address
+	clientIPv4 := typ.ClientFactory(func(id uint64, bus typ.IBus) typ.IBusClient {
+		return bus_client.NewBusClient(id, bus, "client-secret-key", 5, "127.0.0.1", 8080)
+	})(1, busIPv4)
+	x_log.Info("Client 1 created and ready (IPv4)")
 
-	// Create the client through ClientFactory
-	client := typ.ClientFactory(func(id uint64, bus typ.IBus) typ.IBusClient {
-		return bus_client.NewBusClient(id, bus, "client-secret-key", 5)
-	})(1, bus)
-
-	// Log registration of the handler for 'test.topic' subject
-	t.Log("Registering handler for subject 'test.topic'")
-
-	// Register the message handler for "test.topic"
-	err := client.RegisterHandler("test.topic", func(subject string, msg []byte) {
+	// Register message handler for IPv4
+	err := clientIPv4.RegisterHandler("test.topic", func(subject string, msg []byte) {
 		receivedMessage = msg
 	})
+	assert.NoError(t, err, "Failed to register handler (IPv4)")
+	x_log.Info("Handler registered for subject", "test.topic")
 
-	// Assert the handler registration was successful
-	assert.NoError(t, err, "Failed to register message handler")
-
-	// Log subscription of the client to the topic and queue
-	t.Log("Subscribing client to topic 'test.topic' with queue 'testQueue'")
-
-	// Subscribe the client to the "test.topic" and "testQueue" with a handler
-	err = client.Subscribe("test.topic", "testQueue", func(subject string, msg []byte) {
+	// Subscribe client to topic with handler
+	err = clientIPv4.Subscribe("test.topic", "testQueue", func(subject string, msg []byte) {
 		receivedMessage = msg
 	})
-	assert.NoError(t, err, "Failed to subscribe client")
+	assert.NoError(t, err, "Failed to subscribe client (IPv4)")
+	x_log.Info("Client subscribed to", "test.topic", "with queue", "testQueue")
 
-	// Log publishing a message to the topic
-	t.Log("Publishing message 'Test Message' to topic 'test.topic' with queue 'testQueue'")
+	// Retry publish message to IPv4 address
+	message := []byte("Test Message (IPv4)")
+	err = clientIPv4.RetryPublish("test.topic", message, 3, 500*time.Millisecond, "testQueue")
+	assert.NoError(t, err, "Failed to retry publish (IPv4)")
+	x_log.Info("Message", "Test Message (IPv4)", "published")
 
-	// Publish the message to "test.topic" with the correct queue "testQueue"
-	message := []byte("Test Message")
-	err = client.PublishMessage("test.topic", message, "testQueue")
-	assert.NoError(t, err, "Failed to publish message")
-
-	// Log creation of a WaitGroup to synchronize message processing
-	t.Log("Creating WaitGroup to synchronize message processing")
-
-	// Create a WaitGroup to synchronize message processing
+	// Wait for message processing using sync.WaitGroup
 	var wg sync.WaitGroup
-	wg.Add(1) // Increment the wait counter by 1
+	wg.Add(1)
+	done := make(chan struct{})
+	timeout := time.After(10 * time.Second)
 
-	// Start a goroutine to wait for the message to be received
 	go func() {
-		defer wg.Done() // Decrement the wait counter by 1
-
-		// Give time for asynchronous message processing
-		// Wait until the message is received
-		t.Log("Waiting for message to be received...")
-		for receivedMessage == nil || string(receivedMessage) != "Test Message" {
-			// Add a small delay to avoid busy waiting
-			time.Sleep(10 * time.Millisecond)
+		defer wg.Done()
+		for {
+			if receivedMessage != nil && string(receivedMessage) == "Test Message (IPv4)" {
+				x_log.Info("Message received successfully (IPv4)")
+				assert.Equal(t, "Test Message (IPv4)", string(receivedMessage), "Message mismatch")
+				close(done)
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
 		}
-
-		// Log when the message is received
-		t.Log("Message received successfully")
-
-		// Assert that the message was received correctly
-		assert.Equal(t, "Test Message", string(receivedMessage), "Message was not received correctly")
 	}()
 
-	// Log that the goroutine will complete after the message is received
-	t.Log("Waiting for message processing to complete...")
+	select {
+	case <-timeout:
+		t.Fatal("Timeout while waiting for message (IPv4)")
+	case <-done:
+		t.Log("Test completed successfully (IPv4)")
+	}
 
-	// Wait for the goroutine to finish
 	wg.Wait()
+	x_log.Info("TestRetrySubscribe completed (IPv4)")
 
-	// Log the completion of the test
-	t.Log("Test completed successfully")
+	// Test with IPv6 address
+	t.Log("Creating bus with secret key 'secret-key' (IPv6)")
+
+	// Create the main bus with IPv6 address
+	busIPv6 := bus_core.NewBus("secret-key", 5, "2001:db8::1", 8080) // Use a local IPv6 address
+	x_log.Info("Bus created with secret key (IPv6)")
+
+	// Create the client using IPv6 address
+	clientIPv6 := typ.ClientFactory(func(id uint64, bus typ.IBus) typ.IBusClient {
+		return bus_client.NewBusClient(id, bus, "client-secret-key", 5, "2001:db8::1", 8080)
+	})(2, busIPv6)
+	x_log.Info("Client 2 created and ready (IPv6)")
+
+	// Register message handler for IPv6
+	err = clientIPv6.RegisterHandler("test.topic", func(subject string, msg []byte) {
+		receivedMessage = msg
+	})
+	assert.NoError(t, err, "Failed to register handler (IPv6)")
+	x_log.Info("Handler registered for subject", "test.topic")
+
+	// Subscribe client to topic with handler
+	err = clientIPv6.Subscribe("test.topic", "testQueue", func(subject string, msg []byte) {
+		receivedMessage = msg
+	})
+	assert.NoError(t, err, "Failed to subscribe client (IPv6)")
+	x_log.Info("Client subscribed to", "test.topic", "with queue", "testQueue")
+
+	// Retry publish message to IPv6 address
+	err = clientIPv6.RetryPublish("test.topic", message, 3, 500*time.Millisecond, "testQueue")
+	assert.NoError(t, err, "Failed to retry publish (IPv6)")
+	x_log.Info("Message", "Test Message (IPv6)", "published")
+
+	wg.Add(1)
+	done = make(chan struct{})
+
+	go func() {
+		defer wg.Done()
+		for {
+			x_log.Info("Checking for received message...")
+			if receivedMessage != nil && string(receivedMessage) == "Test Message (IPv6)" {
+				x_log.Info("Message received successfully (IPv6)")
+				assert.Equal(t, "Test Message (IPv6)", string(receivedMessage), "Message mismatch")
+				close(done)
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}()
+
+	select {
+	case <-timeout:
+		t.Fatal("Timeout while waiting for message (IPv6)")
+	case <-done:
+		t.Log("Test completed successfully (IPv6)")
+	}
+
+	wg.Wait()
+	x_log.Info("TestRetrySubscribe completed (IPv6)")
 }
 
 // TestDuplicateSubscription checks if the client can subscribe to the same topic and queue multiple times.
@@ -104,12 +144,12 @@ func TestDuplicateSubscription(t *testing.T) {
 	// Mock handler for the test
 	var receivedMessage []byte
 
-	// Create the main bus with a secret key
-	bus := bus_core.NewBus("secret-key", nil, 5)
+	// Create the main bus with a secret key, host, and port (IPv4 for this test)
+	bus := bus_core.NewBus("secret-key", 5, "127.0.0.1", 8080) // Use local IPv4 address
 
 	// Create the client through ClientFactory
 	client := typ.ClientFactory(func(id uint64, bus typ.IBus) typ.IBusClient {
-		return bus_client.NewBusClient(id, bus, "client-secret-key", 5)
+		return bus_client.NewBusClient(id, bus, "client-secret-key", 5, "127.0.0.1", 8080)
 	})(1, bus)
 
 	// Register the message handler for "test.topic"
@@ -154,12 +194,12 @@ func TestMessageProcessing(t *testing.T) {
 	// Mock handler for the test
 	var receivedMessage []byte
 
-	// Create the main bus with a secret key
-	bus := bus_core.NewBus("secret-key", nil, 5)
+	// Create the main bus with a secret key and provide host and port (IPv4 address)
+	bus := bus_core.NewBus("secret-key", 5, "127.0.0.1", 8080)
 
-	// Create the client through ClientFactory
+	// Create the client through ClientFactory, providing host and port as arguments
 	client := typ.ClientFactory(func(id uint64, bus typ.IBus) typ.IBusClient {
-		return bus_client.NewBusClient(id, bus, "client-secret-key", 5)
+		return bus_client.NewBusClient(id, bus, "client-secret-key", 5, "127.0.0.1", 8080)
 	})(1, bus)
 
 	// Register the message handler for "test.topic"
@@ -195,12 +235,12 @@ func TestMessageProcessing(t *testing.T) {
 }
 
 func TestInvalidTopic(t *testing.T) {
-	// Create the main bus with a secret key
-	bus := bus_core.NewBus("secret-key", nil, 5)
+	// Create the main bus with a secret key and provide host and port (IPv4 address)
+	bus := bus_core.NewBus("secret-key", 5, "127.0.0.1", 8080)
 
-	// Create the client through ClientFactory
+	// Create the client through ClientFactory, providing host and port as arguments
 	client := typ.ClientFactory(func(id uint64, bus typ.IBus) typ.IBusClient {
-		return bus_client.NewBusClient(id, bus, "client-secret-key", 5)
+		return bus_client.NewBusClient(id, bus, "client-secret-key", 5, "127.0.0.1", 8080)
 	})(1, bus)
 
 	// Try subscribing to a non-existing topic (invalid topic)

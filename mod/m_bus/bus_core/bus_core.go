@@ -4,11 +4,13 @@ package bus_core
 
 import (
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/rskv-p/buzz/mod/m_bus/bus_client"
+	"github.com/rskv-p/buzz/mod/m_bus/bus_req"
 	"github.com/rskv-p/buzz/mod/m_bus/bus_sub"
 	"github.com/rskv-p/buzz/pkg/x_log"
 	"github.com/rskv-p/buzz/typ"
@@ -28,21 +30,39 @@ type Bus struct {
 	mu              sync.Mutex
 	cond            *sync.Cond
 	maxGoroutines   int
+
+	// Хост и Порт самой шины (сервер)
+	Host string
+	Port int
+
+	// Сервер для прослушивания TCP-соединений
+	listener net.Listener
 }
 
-// NewBus creates a new bus instance
-func NewBus(secretKey string, selfClient typ.IBusClient, maxGoroutines int) *Bus {
+// NewBus создает новый экземпляр шины с информацией о хосте и порте
+// В функции NewBus
+func NewBus(secretKey string, maxGoroutines int, host string, port int) *Bus {
+	if !isValidIP(host) {
+		x_log.Error("Invalid IP address. Please provide a valid IPv4 or IPv6 address.")
+		return nil
+	}
+
+	// Создаем объект Bus
 	bus := &Bus{
 		middlewareChain: make([]typ.IMiddleware, 0),
 		subscriptions:   bus_sub.NewSublist(100),
 		secretKey:       secretKey,
 		messageChannel:  make(chan typ.IRequest, 100),
 		clients:         sync.Map{},
-		selfClient:      selfClient,
 		batchBuffer:     make([]typ.IRequest, 0),
 		batchTicker:     time.NewTicker(5 * time.Second),
 		maxGoroutines:   maxGoroutines,
+		Host:            host,
+		Port:            port,
 	}
+
+	// Инициализируем selfClient
+	bus.InitClient()
 
 	bus.cond = sync.NewCond(&bus.mu)
 
@@ -51,6 +71,115 @@ func NewBus(secretKey string, selfClient typ.IBusClient, maxGoroutines int) *Bus
 	x_log.Info("Bus created with secret key")
 
 	return bus
+}
+
+// Инициализация клиента
+func (b *Bus) InitClient() {
+	if b.selfClient == nil {
+		x_log.Info("Initializing self client...")
+		b.selfClient = bus_client.NewBusClient(111, b, b.secretKey, 5, b.Host, b.Port)
+	}
+}
+
+// Start запускает TCP-сервер на указанном хосте и порту
+func (b *Bus) Start() error {
+	// Форматируем адрес для сервера
+	address := fmt.Sprintf("%s:%d", b.Host, b.Port)
+
+	// Создаём новый TCP-сервер
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		x_log.Error(fmt.Sprintf("Error starting TCP server on %s: %v", address, err))
+		return err
+	}
+
+	b.listener = listener
+
+	// Запускаем горутину для принятия соединений
+	go b.acceptConnections()
+
+	x_log.Info(fmt.Sprintf("Bus server started on %s", address))
+	return nil
+}
+
+// Stop останавливает TCP-сервер
+func (b *Bus) Stop() error {
+	// Останавливаем сервер
+	if b.listener != nil {
+		if err := b.listener.Close(); err != nil {
+			x_log.Error(fmt.Sprintf("Error stopping server: %v", err))
+			return err
+		}
+	}
+
+	x_log.Info("Bus server stopped")
+	return nil
+}
+
+// acceptConnections принимает входящие TCP-соединения
+func (b *Bus) acceptConnections() {
+	for {
+		// Ожидаем новое подключение
+		conn, err := b.listener.Accept()
+		if err != nil {
+			x_log.Error("Error accepting connection:", err)
+			continue
+		}
+
+		// Обрабатываем новое подключение
+		go b.handleConnection(conn)
+	}
+}
+
+// handleConnection обрабатывает соединение с клиентом
+func (b *Bus) handleConnection(conn net.Conn) {
+	defer conn.Close()
+
+	// Читаем данные из соединения
+	buffer := make([]byte, 1024)
+	for {
+		n, err := conn.Read(buffer)
+		if err != nil {
+			x_log.Error("Error reading from connection:", err)
+			return
+		}
+
+		// Получаем полученные данные
+		data := buffer[:n]
+		x_log.Info("Received data:", string(data))
+
+		// Извлекаем тему и данные из полученного сообщения
+		// Для примера, можно использовать первый байт как тему, остальные — как данные
+		subject := fmt.Sprintf("topic_%s", string(data[:1])) // Пример: извлекаем тему из первого байта
+		messageData := data[1:]                              // Пример: данные — это все, что после первого байта
+
+		// Создаем запрос для дальнейшей обработки
+		message := &bus_req.Request{
+			Subject: subject,
+			Data:    messageData,
+		}
+
+		// Обрабатываем сообщение
+		err = b.ProcessMessage(message.Subject, message.Data)
+		if err != nil {
+			x_log.Error("Error processing message:", err)
+			continue
+		}
+
+		// Публикуем сообщение для подписчиков
+		err = b.Publish([]byte(subject), []byte("default_queue"), messageData)
+		if err != nil {
+			x_log.Error("Error publishing message:", err)
+			continue
+		}
+	}
+}
+
+// isValidIP проверяет, является ли предоставленный хост валидным IP-адресом
+func isValidIP(host string) bool {
+	// Разбираем хост, чтобы проверить, является ли он валидным IP
+	addr := net.ParseIP(host)
+	return addr != nil
 }
 
 //-----------------------------------------

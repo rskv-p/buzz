@@ -72,7 +72,10 @@ type IBus interface {
 	AddClient(client IBusClient, id uint64) error                                                           // AddClient adds a client to the bus.
 	RemoveClient(id uint64) error                                                                           // RemoveClient removes a client from the bus.
 	GetClient(id uint64) (IBusClient, error)                                                                // GetClient retrieves a client by its ID.
-	GetClients() map[uint64]IBusClient                                                                      // GetClients returns all registered clients.
+	GetClients() map[uint64]IBusClient
+
+	Start() error
+	Stop() error // GetClients returns all registered clients.
 }
 
 //-------------------------------------------------
