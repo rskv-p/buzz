@@ -1,3 +1,5 @@
+// file: buzz/pkg/x_str/string.go
+
 package x_str
 
 import (

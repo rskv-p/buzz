@@ -1,3 +1,5 @@
+// file: buzz/mod/module.go
+
 package mod
 
 import (

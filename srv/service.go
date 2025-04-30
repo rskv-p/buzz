@@ -1,3 +1,5 @@
+// file: buzz/srv/service.go
+
 package srv
 
 import (
