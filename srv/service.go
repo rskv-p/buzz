@@ -1,5 +1,3 @@
-// file: buzz/srv/service.go
-
 package srv
 
 import (
@@ -10,14 +8,22 @@ import (
 
 var _ typ.IService = (*Service)(nil)
 
-// Service - Service implementation with lifecycle hooks
+//-----------------------------------------
+//  Service Struct
+//-----------------------------------------
+
+// Service implements IService with lifecycle management.
 type Service struct {
-	Name      string         `json:"name"`
+	Name      string         `json:"name"` // Service name
 	Modules   []typ.IModule  // Registered modules
 	busClient typ.IBusClient // Connected bus client
 }
 
-// NewService - Create a new service
+//-----------------------------------------
+//  NewService
+//-----------------------------------------
+
+// NewService creates a new service instance with modules.
 func NewService(bus typ.IBusClient, name string, modules ...typ.IModule) *Service {
 	svc := &Service{
 		Name:      name,
@@ -29,7 +35,11 @@ func NewService(bus typ.IBusClient, name string, modules ...typ.IModule) *Servic
 	return svc
 }
 
-// Start - Start the service and all its modules
+//-----------------------------------------
+//  Start
+//-----------------------------------------
+
+// Start launches the service and all registered modules.
 func (s *Service) Start() error {
 	log.Printf("Starting service %s...", s.GetName())
 
@@ -48,7 +58,11 @@ func (s *Service) Start() error {
 	return nil
 }
 
-// Stop - Stop the service and all its modules
+//-----------------------------------------
+//  Stop
+//-----------------------------------------
+
+// Stop gracefully shuts down the service and all modules.
 func (s *Service) Stop() {
 	log.Printf("Stopping service %s...", s.GetName())
 
@@ -65,7 +79,11 @@ func (s *Service) Stop() {
 	log.Printf("Service %s stopped", s.GetName())
 }
 
-// GetName - Get the name of the service
+//-----------------------------------------
+//  GetName
+//-----------------------------------------
+
+// GetName returns the name of the service.
 func (s *Service) GetName() string {
 	return s.Name
 }

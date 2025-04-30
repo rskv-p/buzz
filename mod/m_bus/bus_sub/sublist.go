@@ -31,9 +31,14 @@ type Sublist struct {
 
 // NewSublist creates a new Sublist with a specified cache size.
 func NewSublist(cacheSize int) *Sublist {
-	x_log.Info("Creating a new Sublist with cache size:", cacheSize)
+	tree := subtree.NewSubjectTree[*typ.Subscription]()
+	if tree == nil {
+		x_log.Error("Failed to initialize subject tree")
+		panic("subject tree initialization failed")
+	}
+
 	return &Sublist{
-		Tree:          subtree.NewSubjectTree[*typ.Subscription](),
+		Tree:          tree,
 		ExactCache:    make(map[string][]*typ.Subscription),
 		WildcardCache: make(map[string][]*typ.Subscription),
 		cacheSize:     cacheSize,

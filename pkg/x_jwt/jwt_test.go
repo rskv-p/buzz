@@ -6,11 +6,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rskv-p/buzz/pkg/x_init"
 	"github.com/rskv-p/buzz/pkg/x_jwt"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestGenerateJWT(t *testing.T) {
+	x_init.Init()
+
 	// Test data
 	subject := "test-user"
 	secretKey := "test-secret-key"
@@ -25,6 +28,8 @@ func TestGenerateJWT(t *testing.T) {
 }
 
 func TestVerifyJWT(t *testing.T) {
+	x_init.Init()
+
 	// Test data
 	subject := "test-user"
 	secretKey := "test-secret-key"
@@ -43,6 +48,8 @@ func TestVerifyJWT(t *testing.T) {
 }
 
 func TestVerifyInvalidJWT(t *testing.T) {
+	x_init.Init()
+
 	// Test data
 	invalidToken := "invalid-token"
 	secretKey := "test-secret-key"

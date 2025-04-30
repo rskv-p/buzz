@@ -1,5 +1,3 @@
-// file: buzz/typ/types.go
-
 package typ
 
 import (
@@ -9,14 +7,14 @@ import (
 	"github.com/rskv-p/buzz/pkg/x_log"
 )
 
-//---------------------
-// Action and Handler
-//---------------------
+//-----------------------------------------
+//  ActionHandler & IAction
+//-----------------------------------------
 
-// Handler defines the function signature for handlers that process actions.
+// ActionHandler defines the function signature for action processing.
 type ActionHandler func(IAction) any
 
-// IAction defines the core behavior that an action should implement.
+// IAction defines the interface for application actions.
 type IAction interface {
 	IsPublic() bool
 	GetInputs() []any
@@ -29,154 +27,155 @@ type IAction interface {
 	Context() context.Context
 	GetOutput() any
 	Dispose()
-	//Inputs
-	ValidateInputsNumber(length int) error                 // ValidateInputsNumber checks if the number of inputs is sufficient
-	NumberOfInputs() int                                   // NumberOfInputs returns the number of inputs to the action
-	NumberOfInputsIs(num int) bool                         // NumberOfInputsIs checks if the number of inputs matches the specified number
-	InputNotNull(i int) error                              // InputNotNull ensures that a specific input is not nil
-	InputString(i int, defaults ...string) string          // InputString parses a string input at the specified index
-	InputInt(i int, defaults ...int) int                   // InputInt parses an integer input at the specified index
-	InputUint32(i int, defaults ...uint32) uint32          // InputUint32 parses a uint32 input at the specified index
-	InputBool(i int, defaults ...bool) bool                // InputBool parses a boolean input at the specified index
-	InputURL(i int, key string, defaults ...string) string // InputURL parses a URL input at the specified index and retrieves a specific key
-	InputMap(i int) map[string]any                         // InputMap parses an input as a map
-	InputArray(i int) []any                                // InputArray parses an input as an array
-	InputStrings(i int) []string                           // InputStrings parses an input as an array of strings
-	InputsRecords(i int) []map[string]any                  // InputsRecords parses an input as an array of records (maps)
+
+	// Input validation and parsing
+	ValidateInputsNumber(length int) error
+	NumberOfInputs() int
+	NumberOfInputsIs(num int) bool
+	InputNotNull(i int) error
+	InputString(i int, defaults ...string) string
+	InputInt(i int, defaults ...int) int
+	InputUint32(i int, defaults ...uint32) uint32
+	InputBool(i int, defaults ...bool) bool
+	InputURL(i int, key string, defaults ...string) string
+	InputMap(i int) map[string]any
+	InputArray(i int) []any
+	InputStrings(i int) []string
+	InputsRecords(i int) []map[string]any
 }
 
-//-------------------------------------------------
-// ClientFactory - Type definition for client creation
-//-------------------------------------------------
+//-----------------------------------------
+//  ClientFactory
+//-----------------------------------------
 
-// ClientFactory defines a function type for creating new clients.
+// ClientFactory defines a function type for creating bus clients.
 type ClientFactory func(id uint64, bus IBus) IBusClient
 
-//-------------------------------------------------
-// IBus - Interface for message bus
-//-------------------------------------------------
+//-----------------------------------------
+//  IBus
+//-----------------------------------------
 
-// IBus defines the interface for interacting with the message bus.
+// IBus defines the interface for a message bus.
 type IBus interface {
-	Use(middleware IMiddleware)                                                                             // Use adds middleware to the bus.
-	RemoveHandler(subject string) error                                                                     // RemoveHandler removes a handler for a specific message subject.
-	ProcessMessage(subject string, msg []byte) error                                                        // ProcessMessage processes a message and invokes the appropriate handler.
-	Subscribe(subject []byte, queue []byte, client IBusClient) error                                        // Subscribe subscribes a client to a subject with a queue.
-	RetrySubscribe(subject []byte, queue []byte, retries int, delay time.Duration, client IBusClient) error // RetrySubscribe retries subscription attempts for a client.
-	Unsubscribe(subject []byte, queue []byte) error                                                         // Unsubscribe removes a subscription for a client.
-	Publish(subject []byte, queue []byte, data []byte) error                                                // Publish publishes raw data to all clients subscribed to the subject and queue.
-	RetryPublish(subject []byte, queue []byte, data []byte, retries int, delay time.Duration) error         // RetryPublish retries the publish attempt.
-	GetSubscriptions(subject []byte) ([]*Subscription, error)                                               // GetSubscriptions returns the list of subscriptions for a specific subject.
-	GetMiddleware() []IMiddleware                                                                           // GetMiddleware returns all middleware added to the bus.
-	ProcessMessages()                                                                                       // ProcessMessages processes messages asynchronously via a channel.
-	AddClient(client IBusClient, id uint64) error                                                           // AddClient adds a client to the bus.
-	RemoveClient(id uint64) error                                                                           // RemoveClient removes a client from the bus.
-	GetClient(id uint64) (IBusClient, error)                                                                // GetClient retrieves a client by its ID.
+	Use(middleware IMiddleware)
+	RemoveHandler(subject string) error
+	ProcessMessage(subject string, msg []byte) error
+	Subscribe(subject []byte, queue []byte, client IBusClient) error
+	RetrySubscribe(subject []byte, queue []byte, retries int, delay time.Duration, client IBusClient) error
+	Unsubscribe(subject []byte, queue []byte) error
+	Publish(subject []byte, queue []byte, data []byte) error
+	RetryPublish(subject []byte, queue []byte, data []byte, retries int, delay time.Duration) error
+	GetSubscriptions(subject []byte) ([]*Subscription, error)
+	GetMiddleware() []IMiddleware
+	ProcessMessages()
+	AddClient(client IBusClient, id uint64) error
+	RemoveClient(id uint64) error
+	GetClient(id uint64) (IBusClient, error)
 	GetClients() map[uint64]IBusClient
 
 	Start() error
-	Stop() error // GetClients returns all registered clients.
+	Stop() error
 }
 
-//-------------------------------------------------
-// IMiddleware - Interface for middleware
-//-------------------------------------------------
+//-----------------------------------------
+//  IMiddleware
+//-----------------------------------------
 
-// IMiddleware defines the interface for middleware.
+// IMiddleware defines middleware for request processing.
 type IMiddleware interface {
-	// Process processes the request through the middleware.
 	Process(req IRequest) error
 }
 
-//-------------------------------------------------
-// IBusClient - Interface for bus client
-//-------------------------------------------------
+//-----------------------------------------
+//  IBusClient
+//-----------------------------------------
 
-// IBusClient defines the interface for interacting with a message bus client.
+// IBusClient defines the interface for a message bus client.
 type IBusClient interface {
 	RegisterHandler(subject string, handler func(subject string, msg []byte)) error
 	GetHandler(subject string) (func(subject string, msg []byte), bool)
-	SubscribeToTopic(string, string, func(string, []byte)) error                                                                   // SubscribeToTopic subscribes the client to a specific topic with a queue.
-	RetrySubscribe(subject string, queue string, retries int, delay time.Duration, handler func(subject string, msg []byte)) error // RetrySubscribe retries the subscription to a topic with a queue multiple times.
-	PublishMessage(subject string, data []byte, queue string) error                                                                // PublishMessage publishes a message to the specified topic.
-	RetryPublish(subject string, data []byte, retries int, delay time.Duration, queue string) error                                // RetryPublish retries the publishing of a message multiple times.
-	HandleIncomingMessage(subject string, data []byte) error                                                                       // HandleIncomingMessage handles incoming messages asynchronously on the given topic.
-	SendRequest(ctx context.Context, req IRequest) error                                                                           // SendRequest sends a request through the bus and processes it via middleware.
-	Subscribe(subject string, queue string, handler func(subject string, msg []byte)) error                                        // Subscribe subscribes the client to a specified topic with a queue.
-	SendToMessageChannel(string, []byte) error                                                                                     // SendToMessageChannel sends data to the client's message channel.
-	ProcessBatch(batch []IRequest) error                                                                                           // ProcessBatch processes a batch of messages asynchronously.
-	GetClientID() uint64                                                                                                           // GetClientID retrieves the client ID.
+
+	SubscribeToTopic(subject, queue string, handler func(subject string, msg []byte)) error
+	RetrySubscribe(subject, queue string, retries int, delay time.Duration, handler func(subject string, msg []byte)) error
+
+	PublishMessage(subject string, data []byte, queue string) error
+	RetryPublish(subject string, data []byte, retries int, delay time.Duration, queue string) error
+
+	HandleIncomingMessage(subject string, data []byte) error
+	SendRequest(ctx context.Context, req IRequest) error
+	Subscribe(subject, queue string, handler func(subject string, msg []byte)) error
+	SendToMessageChannel(subject string, data []byte) error
+	ProcessBatch(batch []IRequest) error
+	GetClientID() uint64
 }
 
-//-------------------------------------------------
-// IRequest - Interface for working with requests
-//-------------------------------------------------
+//-----------------------------------------
+//  IRequest
+//-----------------------------------------
 
-// IRequest defines the interface for working with requests.
+// IRequest defines the interface for working with a request.
 type IRequest interface {
-	RespondJSON(v any) error                                  // RespondJSON sends a JSON response.
-	Error(code, description string, data []byte) error        // Error sends an error in JSON format.
-	SetErrorHandler(f func(code, msg string, data any) error) // SetErrorHandler sets an error handler.
-	SetHeader(key, value string) error                        // SetHeader sets a header for the request.
-	Headers() (IRequestHeaders, error)                        // Headers returns the headers of the request.
-	GetSubject() string                                       // GetSubject retrieves the subject of the request.
-	GetData() []byte                                          // GetData retrieves the data of the request.
-	GetReply() string                                         // GetReply retrieves the reply for the request.
+	RespondJSON(v any) error
+	Error(code, description string, data []byte) error
+	SetErrorHandler(f func(code, msg string, data any) error)
+	SetHeader(key, value string) error
+	Headers() (IRequestHeaders, error)
+	GetSubject() string
+	GetData() []byte
+	GetReply() string
 }
 
-//-------------------------------------------------
-// IRequestHeaders - Interface for working with headers
-//-------------------------------------------------
+//-----------------------------------------
+//  IRequestHeaders
+//-----------------------------------------
 
-// IRequestHeaders defines the interface for handling request headers.
+// IRequestHeaders defines the interface for request headers.
 type IRequestHeaders interface {
-	Get(key string) (string, error) // Get retrieves the value of a header by its key.
-	Set(key, value string) error    // Set sets a header for the request.
+	Get(key string) (string, error)
+	Set(key, value string) error
 }
 
-//-------------------------------------------------
-// Subscription - Represents a subscription to a topic
-//-------------------------------------------------
+//-----------------------------------------
+//  Subscription
+//-----------------------------------------
 
-// Subscription represents a subscription to a subject with an associated client and queue.
+// Subscription represents a subject-queue-client tuple.
 type Subscription struct {
-	Subject []byte     // The subject to which the client is subscribed
-	Queue   []byte     // The queue associated with the subscription
-	Client  IBusClient // The client associated with the subscription
+	Subject []byte
+	Queue   []byte
+	Client  IBusClient
 }
 
-// NewSubscription creates a new subscription with the provided subject, queue, and client.
+// NewSubscription creates a new subscription instance.
 func NewSubscription(subject, queue []byte, client IBusClient) *Subscription {
 	x_log.Info("Creating new subscription:", string(subject), string(queue))
-
-	return &Subscription{
-		Subject: subject,
-		Queue:   queue,
-		Client:  client,
-	}
+	return &Subscription{Subject: subject, Queue: queue, Client: client}
 }
 
-//---------------------
-// Interfaces
-//---------------------
+//-----------------------------------------
+//  IModule
+//-----------------------------------------
 
-// IModule defines the lifecycle of a module, including initialization, starting, stopping, and action management.
+// IModule defines the lifecycle of a functional module.
 type IModule interface {
-	GetName() string // Returns the name of the module
-	Init() error     // Initializes the module
-	Start() error    // Starts the module (sets status to running)
-	Stop() error     // Stops the module (sets status to down)
+	GetName() string
+	Init() error
+	Start() error
+	Stop() error
 
-	// Actions Management
-	RegisterAction(action IAction) error   // Registers a new action
-	UnregisterAction(name string) error    // Unregisters an action by name
-	GetActions() []IAction                 // Returns all registered actions
-	GetAction(name string) (IAction, bool) // Retrieves a specific action by name
+	RegisterAction(action IAction) error
+	UnregisterAction(name string) error
+	GetActions() []IAction
+	GetAction(name string) (IAction, bool)
 }
 
-// IService defines a common interface for services
+//-----------------------------------------
+//  IService
+//-----------------------------------------
+
+// IService defines the lifecycle of a service.
 type IService interface {
-	GetName() string // Return service name
-	Start() error    // Start the service
-	Stop()           // Stop the service
+	GetName() string
+	Start() error
+	Stop()
 }

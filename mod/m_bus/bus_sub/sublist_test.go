@@ -5,6 +5,7 @@ package bus_sub
 import (
 	"testing"
 
+	"github.com/rskv-p/buzz/pkg/x_init"
 	"github.com/rskv-p/buzz/pkg/x_log"
 	"github.com/rskv-p/buzz/typ"
 )
@@ -15,6 +16,8 @@ import (
 
 // TestMatchExactSubscription tests if exact subscriptions are matched correctly.
 func TestMatchExactSubscription(t *testing.T) {
+	x_init.Init()
+
 	sublist := NewSublist(10)
 
 	// Create an exact subscription
@@ -61,6 +64,8 @@ func TestMatchExactSubscription(t *testing.T) {
 
 // TestRemoveSubscription tests if subscriptions are removed correctly.
 func TestRemoveSubscription(t *testing.T) {
+	x_init.Init()
+
 	sublist := NewSublist(10)
 
 	// Create an exact subscription
@@ -103,6 +108,8 @@ func TestRemoveSubscription(t *testing.T) {
 
 // TestMatchWildcardSubscription tests if subscriptions match correctly with wildcard filters.
 func TestMatchWildcardSubscription(t *testing.T) {
+	x_init.Init()
+
 	sublist := NewSublist(10)
 
 	// Create exact subscriptions
@@ -163,6 +170,8 @@ func TestMatchWildcardSubscription(t *testing.T) {
 
 // TestHasInterest tests if the bus has interest in a given subject.
 func TestHasInterest(t *testing.T) {
+	x_init.Init()
+
 	sublist := NewSublist(10)
 
 	// Create a subscription
@@ -188,6 +197,8 @@ func TestHasInterest(t *testing.T) {
 
 // TestInsertMultipleSubscriptions tests if multiple subscriptions are inserted correctly.
 func TestInsertMultipleSubscriptions(t *testing.T) {
+	x_init.Init()
+
 	sublist := NewSublist(10)
 
 	// Create multiple subscriptions with the same and different subjects

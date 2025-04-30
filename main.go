@@ -10,42 +10,59 @@ import (
 	"github.com/rskv-p/buzz/pkg/x_log"
 )
 
-func main() {
-	// Initialize the application (config, logging, etc.)
-	x_init.Init()
+//-----------------------------------------
+//  Main Entry Point
+//-----------------------------------------
 
-	// Define the host and port
-	host := os.Getenv("HOST") // Fetch from environment or use default
+func main() {
+	//-----------------------------------------
+	//  Initialization
+	//-----------------------------------------
+
+	x_init.Init() // Initialize config, logging, etc.
+
+	//-----------------------------------------
+	//  Resolve Host and Port
+	//-----------------------------------------
+
+	host := os.Getenv("HOST")
 	if host == "" {
-		host = "127.0.0.1" // Default to IPv4 if not provided
+		host = "127.0.0.1" // Default to IPv4
 	}
 
-	portStr := os.Getenv("PORT") // Fetch from environment or use default
+	portStr := os.Getenv("PORT")
 	if portStr == "" {
 		portStr = "8080" // Default port
 	}
 
-	// Convert port from string to int
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
 		x_log.Error("Invalid port number:", portStr)
 		return
 	}
 
-	// Create the bus module (supports both IPv4 and IPv6)
-	busModule := m_bus.NewBusModule("bus", "secretKey", 10, host, port)
+	//-----------------------------------------
+	//  Create Bus Module
+	//-----------------------------------------
 
-	// After creating the module, register public actions
+	busModule := m_bus.NewBusModule("bus", "secretKey", 10, host, port)
 	m_bus.RegisterPublicActions(&busModule.Module)
 
-	// Start the HTTP server
+	//-----------------------------------------
+	//  Start HTTP Server
+	//-----------------------------------------
+
 	go func() {
-		// Listen and serve on the specified port
 		if err := http.ListenAndServe(":"+portStr, nil); err != nil {
 			x_log.Error("Failed to start HTTP server:", err)
 		}
 	}()
 
 	x_log.Info("Server started on port", portStr)
-	select {} // Block forever to keep the server running
+
+	//-----------------------------------------
+	//  Block Forever
+	//-----------------------------------------
+
+	select {}
 }
