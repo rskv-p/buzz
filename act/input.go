@@ -1,4 +1,4 @@
-// file:buzz/act/input_test.go
+// file:buzz/act/input.go
 
 package act
 

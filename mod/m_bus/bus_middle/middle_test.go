@@ -1,3 +1,5 @@
+// file: buzz/mod/m_bus/bus_middle/middle_test.go
+
 package bus_middle_test
 
 import (

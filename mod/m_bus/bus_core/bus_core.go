@@ -1,3 +1,5 @@
+// file: buzz/mod/m_bus/bus_core/bus_core.go
+
 package bus_core
 
 import (
