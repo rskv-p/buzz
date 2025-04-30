@@ -1,4 +1,4 @@
-bus/_toupload/
+_toupload/
 .bus/bin/*
 !.bus/bin/.gitkeep
 .bus/log/*
