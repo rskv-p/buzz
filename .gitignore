@@ -1,7 +1,7 @@
 _toupload/
-.bus/bin/*
-!.bus/bin/.gitkeep
-.bus/log/*
-!.bus/log/.gitkeep
+.space/bin/*
+!.space/bin/.gitkeep
+.space/log/*
+!.space/log/.gitkeep
 .bus/data/*
 !.bus/data/.gitkeep
